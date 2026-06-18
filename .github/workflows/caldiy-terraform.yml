@@ -1,0 +1,79 @@
+# Terraform plan/apply for the cal.diy GCP infrastructure.
+#
+#   * PR touching terraform/**          -> `plan` (read-only, posts to the run log)
+#   * workflow_dispatch (action=apply)  -> `apply`, gated by the environment's
+#                                          required reviewers (manual approval)
+#
+# Auth is via a SEPARATE, privileged Terraform admin identity (it creates IAM,
+# Cloud SQL, KMS, etc. — far more than the deploy SA). That SA + its WIF binding
+# are created during initial bootstrap (see RUNBOOK "Bootstrap"), because
+# Terraform cannot grant its own god-rights on the first run.
+#
+# Required GitHub Environment variables (dev|prod):
+#   GCP_TF_WIF_PROVIDER     WIF provider for the TF admin SA
+#   GCP_TF_SERVICE_ACCOUNT  Terraform admin SA email
+#   TF_STATE_BUCKET         GCS bucket holding remote state
+
+name: cal.diy Terraform
+
+on:
+  pull_request:
+    paths: ["terraform/**", ".github/workflows/caldiy-terraform.yml"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options: [dev, prod]
+        default: dev
+      action:
+        description: "plan or apply"
+        type: choice
+        options: [plan, apply]
+        default: plan
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  terraform:
+    name: "terraform ${{ inputs.action || 'plan' }} (${{ inputs.environment || 'dev' }})"
+    runs-on: ubuntu-latest
+    environment: ${{ (inputs.action == 'apply') && inputs.environment || '' }}
+    defaults:
+      run:
+        working-directory: terraform
+
+    env:
+      ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_TF_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_TF_SERVICE_ACCOUNT }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.8"
+
+      - name: Terraform init
+        run: terraform init -backend-config=environments/backend-${ENVIRONMENT}.hcl
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        run: terraform plan -input=false -var-file=environments/${ENVIRONMENT}.tfvars -out=tfplan
+
+      - name: Terraform apply
+        if: ${{ inputs.action == 'apply' }}
+        run: terraform apply -input=false -auto-approve tfplan

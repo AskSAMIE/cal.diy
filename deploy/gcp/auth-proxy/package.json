@@ -1,0 +1,13 @@
+{
+  "name": "caldiy-auth-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Auth-swap proxy fronting the internal cal.diy API v2 (GCP Cloud Run).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
