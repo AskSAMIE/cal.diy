@@ -17,8 +17,12 @@
 name: cal.diy Terraform
 
 on:
-  pull_request:
-    paths: ["terraform/**", ".github/workflows/caldiy-terraform.yml"]
+  # PR-plan is intentionally OFF until the privileged Terraform CI identity exists
+  # (GCP_TF_WIF_PROVIDER / GCP_TF_SERVICE_ACCOUNT). Re-enable by uncommenting once
+  # the TF admin SA + WIF binding are bootstrapped (see RUNBOOK §3.2). Without it
+  # the plan job has no GCP auth and fails on every PR.
+  # pull_request:
+  #   paths: ["terraform/**", ".github/workflows/caldiy-terraform.yml"]
   workflow_dispatch:
     inputs:
       environment:

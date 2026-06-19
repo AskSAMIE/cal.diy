@@ -300,6 +300,16 @@ Our deployment-only files live **outside** the upstream tree to minimize conflic
 `terraform/`, `deploy/gcp/auth-proxy/`, `.github/workflows/caldiy-*.yml`, the two
 root `*.md` deliverables.
 
+**Upstream CI is removed in this fork.** We deleted cal.diy's app test/lint/e2e/
+release workflows from `.github/workflows/` (keeping only `caldiy-deploy.yml` and
+`caldiy-terraform.yml`) so the fork doesn't spam failing runs it can't satisfy. A
+`git merge upstream/main` will try to re-add them (delete/modify conflicts) — after
+each upstream sync, re-remove everything in `.github/workflows/` except the two
+`caldiy-*.yml` files:
+```bash
+git rm $(ls .github/workflows/*.y*ml | grep -vE 'caldiy-(deploy|terraform)\.yml$')
+```
+
 ---
 
 ## 10. Quick reference

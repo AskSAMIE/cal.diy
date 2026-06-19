@@ -40,6 +40,10 @@ on:
         description: "Git ref (tag/branch/SHA) to build — defaults to the triggering ref"
         required: false
         type: string
+      build_only:
+        description: "Build & push images only — skip migrate + Cloud Run deploy (first-run bootstrap before Terraform creates the services)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -132,6 +136,7 @@ jobs:
 
       - name: Resolve image digests (deploy by digest, immutable)
         id: digests
+        if: ${{ inputs.build_only != true }}
         run: |
           set -euo pipefail
           for svc in web api proxy; do
@@ -143,6 +148,7 @@ jobs:
 
       # ---- DB migrations as a controlled step (before rolling web/api) ----
       - name: Run database migrations
+        if: ${{ inputs.build_only != true }}
         run: |
           set -euo pipefail
           JOB="caldiy-${{ inputs.environment || 'dev' }}-migrate"
@@ -154,6 +160,7 @@ jobs:
 
       # ---- Roll the services (api first, then web, then proxy) ----
       - name: Deploy api-v2
+        if: ${{ inputs.build_only != true }}
         run: |
           gcloud run deploy "caldiy-${{ inputs.environment || 'dev' }}-api" \
             --region "${{ vars.GCP_REGION }}" \
@@ -161,6 +168,7 @@ jobs:
             --quiet
 
       - name: Deploy web
+        if: ${{ inputs.build_only != true }}
         run: |
           gcloud run deploy "caldiy-${{ inputs.environment || 'dev' }}-web" \
             --region "${{ vars.GCP_REGION }}" \
@@ -168,6 +176,7 @@ jobs:
             --quiet
 
       - name: Deploy auth-proxy
+        if: ${{ inputs.build_only != true }}
         run: |
           gcloud run deploy "caldiy-${{ inputs.environment || 'dev' }}-proxy" \
             --region "${{ vars.GCP_REGION }}" \
@@ -175,6 +184,7 @@ jobs:
             --quiet
 
       - name: Summary
+        if: ${{ inputs.build_only != true }}
         run: |
           {
             echo "### cal.diy deployed to ${{ inputs.environment || 'dev' }} :rocket:"
