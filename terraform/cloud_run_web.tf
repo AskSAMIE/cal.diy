@@ -139,10 +139,22 @@ resource "google_cloud_run_v2_service" "web" {
   ]
 }
 
-# Admin-only invoker (authenticated tunnel). Empty admin_members => no one but
-# project IAM admins can reach it.
+# Access model depends on whether the IAP'd LB is in front:
+#  - enable_web_lb = true: ingress is INTERNAL_AND_CLOUD_LOAD_BALANCING, so the
+#    run.app URL is dead and the ONLY path is LB -> IAP -> here. IAP does the
+#    identity check at the edge, so the service allows unauthenticated invocation
+#    (reachable only via the LB anyway).
+#  - enable_web_lb = false: no LB; only admin_members may invoke (e.g. via tunnel).
+resource "google_cloud_run_v2_service_iam_member" "web_public" {
+  count    = var.enable_web_lb ? 1 : 0
+  name     = google_cloud_run_v2_service.web.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
 resource "google_cloud_run_v2_service_iam_member" "web_admin" {
-  for_each = toset(var.admin_members)
+  for_each = var.enable_web_lb ? [] : toset(var.admin_members)
   name     = google_cloud_run_v2_service.web.name
   location = var.region
   role     = "roles/run.invoker"
