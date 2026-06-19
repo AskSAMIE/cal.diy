@@ -37,4 +37,11 @@ resource "google_secret_manager_secret" "this" {
   }
 
   depends_on = [google_project_service.enabled]
+
+  # Guard the crown jewels: a stray `terraform destroy` must not delete these
+  # containers (which would take their versions — incl. the DB-encryption keys —
+  # with them). Remove deliberately only when decommissioning the environment.
+  lifecycle {
+    prevent_destroy = true
+  }
 }

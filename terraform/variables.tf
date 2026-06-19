@@ -104,8 +104,14 @@ variable "kms_key_rotation_period" {
 
 # ---- Cloud SQL ------------------------------------------------------------
 
+variable "sql_edition" {
+  description = "Cloud SQL edition. ENTERPRISE supports db-custom-* tiers; ENTERPRISE_PLUS needs db-perf-optimized-*."
+  type        = string
+  default     = "ENTERPRISE"
+}
+
 variable "sql_tier" {
-  description = "Cloud SQL machine tier. dev: db-custom-1-3840, prod: db-custom-2-7680 (set per-env)."
+  description = "Cloud SQL machine tier (ENTERPRISE). dev: db-custom-1-3840, prod: db-custom-2-7680 (set per-env)."
   type        = string
   default     = "db-custom-1-3840"
 }

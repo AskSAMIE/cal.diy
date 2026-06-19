@@ -8,3 +8,9 @@ override.tf
 override.tf.json
 *_override.tf
 # DO commit .terraform.lock.hcl (provider pinning).
+
+# local apply/plan artifacts
+*.log
+plan.out
+plan.err
+tfplan*

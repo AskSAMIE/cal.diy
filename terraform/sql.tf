@@ -20,6 +20,10 @@ resource "google_sql_database_instance" "main" {
   ]
 
   settings {
+    # ENTERPRISE edition supports db-custom-* shared/custom tiers; the project
+    # defaults new instances to ENTERPRISE_PLUS (which only takes db-perf-optimized-*),
+    # so pin it explicitly. (ENTERPRISE still supports REGIONAL HA for prod.)
+    edition           = var.sql_edition
     tier              = var.sql_tier
     availability_type = var.sql_availability_type
     disk_type         = "PD_SSD"
