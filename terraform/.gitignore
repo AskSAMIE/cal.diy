@@ -1,0 +1,16 @@
+# Local Terraform working dirs / state — never commit these.
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars.local
+override.tf
+override.tf.json
+*_override.tf
+# DO commit .terraform.lock.hcl (provider pinning).
+
+# local apply/plan artifacts
+*.log
+plan.out
+plan.err
+tfplan*

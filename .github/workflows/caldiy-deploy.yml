@@ -1,0 +1,195 @@
+# One-click deploy of the self-hosted cal.diy stack to GCP (OT Connected).
+#
+# Builds the three images (web, api-v2, auth-proxy) from a PINNED ref of our fork,
+# pushes them to Artifact Registry, runs DB migrations as a controlled job, then
+# rolls the Cloud Run revisions. Auth to GCP is via Workload Identity Federation
+# (no long-lived service-account keys).
+#
+# Trigger:
+#   * push a tag matching `caldiy-v*`  -> deploys to dev, then (with approval) prod
+#   * workflow_dispatch                -> pick environment + ref manually
+#
+# Required GitHub *Environment* config (Settings > Environments > dev|prod):
+#   Variables:
+#     GCP_PROJECT_ID            e.g. otconnected-caldiy-dev
+#     GCP_REGION                e.g. us-central1
+#     GCP_WIF_PROVIDER          tf output wif_provider_github (full resource name)
+#     GCP_CI_SERVICE_ACCOUNT    tf output ci_deployer_service_account
+#     GCP_AR_REPO               tf output artifact_registry_repo
+#     CAL_WEBAPP_URL            tf var webapp_url (baked into web image)
+#     CAL_API_V2_PUBLIC_URL     tf var api_v2_public_url (baked into web image)
+#   (Add `prod` as a Protected environment with required reviewers for approval.)
+#
+# No secrets are needed in GitHub: WIF replaces static keys, and all runtime
+# secrets live in GCP Secret Manager.
+
+name: cal.diy Deploy
+
+on:
+  push:
+    tags:
+      - "caldiy-v*"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options: [dev, prod]
+        default: dev
+      ref:
+        description: "Git ref (tag/branch/SHA) to build — defaults to the triggering ref"
+        required: false
+        type: string
+      build_only:
+        description: "Build & push images only — skip migrate + Cloud Run deploy (first-run bootstrap before Terraform creates the services)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # required for WIF
+
+concurrency:
+  group: caldiy-deploy-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: "Build & deploy (${{ inputs.environment || 'dev' }})"
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout pinned ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          REF="${{ inputs.ref || github.ref_name }}"
+          SHA="$(git rev-parse --short HEAD)"
+          # Sanitize ref into a valid docker tag; always append the SHA for immutability.
+          SAFE="$(echo "$REF" | sed 's/[^a-zA-Z0-9_.-]/-/g' | sed 's/^[-.]*//')"
+          echo "image_tag=${SAFE}-${SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+        env:
+          GCP_REGION: ${{ vars.GCP_REGION }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ---- Build & push: auth-proxy (small, fast) ----
+      - name: Build & push auth-proxy
+        uses: docker/build-push-action@v6
+        with:
+          context: ./deploy/gcp/auth-proxy
+          file: ./deploy/gcp/auth-proxy/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ vars.GCP_AR_REPO }}/proxy:${{ steps.tag.outputs.image_tag }}
+          provenance: false
+
+      # ---- Build & push: API v2 ----
+      # Build-time DB URLs are placeholders (used only for `prisma generate`);
+      # the real DATABASE_URL is injected at runtime from Secret Manager.
+      - name: Build & push api-v2
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/api/v2/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ vars.GCP_AR_REPO }}/api:${{ steps.tag.outputs.image_tag }}
+          build-args: |
+            DATABASE_URL=postgresql://build:build@localhost:5432/build
+            DATABASE_DIRECT_URL=postgresql://build:build@localhost:5432/build
+          provenance: false
+
+      # ---- Build & push: web ----
+      # NEXT_PUBLIC_API_V2_URL is baked at build (no runtime replace). NEXT_PUBLIC_WEBAPP_URL
+      # is left as the placeholder and replaced at runtime by scripts/start.sh.
+      - name: Build & push web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ vars.GCP_AR_REPO }}/web:${{ steps.tag.outputs.image_tag }}
+          build-args: |
+            NEXT_PUBLIC_API_V2_URL=${{ vars.CAL_API_V2_PUBLIC_URL }}
+          provenance: false
+
+      - name: Resolve image digests (deploy by digest, immutable)
+        id: digests
+        if: ${{ inputs.build_only != true }}
+        run: |
+          set -euo pipefail
+          for svc in web api proxy; do
+            DIGEST="$(gcloud artifacts docker images describe \
+              "${{ vars.GCP_AR_REPO }}/${svc}:${{ steps.tag.outputs.image_tag }}" \
+              --format='value(image_summary.digest)')"
+            echo "${svc}_image=${{ vars.GCP_AR_REPO }}/${svc}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          done
+
+      # ---- DB migrations as a controlled step (before rolling web/api) ----
+      - name: Run database migrations
+        if: ${{ inputs.build_only != true }}
+        run: |
+          set -euo pipefail
+          JOB="caldiy-${{ inputs.environment || 'dev' }}-migrate"
+          gcloud run jobs update "$JOB" \
+            --region "${{ vars.GCP_REGION }}" \
+            --image "${{ steps.digests.outputs.web_image }}" \
+            --quiet
+          gcloud run jobs execute "$JOB" --region "${{ vars.GCP_REGION }}" --wait
+
+      # ---- Roll the services (api first, then web, then proxy) ----
+      - name: Deploy api-v2
+        if: ${{ inputs.build_only != true }}
+        run: |
+          gcloud run deploy "caldiy-${{ inputs.environment || 'dev' }}-api" \
+            --region "${{ vars.GCP_REGION }}" \
+            --image "${{ steps.digests.outputs.api_image }}" \
+            --quiet
+
+      - name: Deploy web
+        if: ${{ inputs.build_only != true }}
+        run: |
+          gcloud run deploy "caldiy-${{ inputs.environment || 'dev' }}-web" \
+            --region "${{ vars.GCP_REGION }}" \
+            --image "${{ steps.digests.outputs.web_image }}" \
+            --quiet
+
+      - name: Deploy auth-proxy
+        if: ${{ inputs.build_only != true }}
+        run: |
+          gcloud run deploy "caldiy-${{ inputs.environment || 'dev' }}-proxy" \
+            --region "${{ vars.GCP_REGION }}" \
+            --image "${{ steps.digests.outputs.proxy_image }}" \
+            --quiet
+
+      - name: Summary
+        if: ${{ inputs.build_only != true }}
+        run: |
+          {
+            echo "### cal.diy deployed to ${{ inputs.environment || 'dev' }} :rocket:"
+            echo "- image tag: \`${{ steps.tag.outputs.image_tag }}\`"
+            echo "- web: \`${{ steps.digests.outputs.web_image }}\`"
+            echo "- api: \`${{ steps.digests.outputs.api_image }}\`"
+            echo "- proxy: \`${{ steps.digests.outputs.proxy_image }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
