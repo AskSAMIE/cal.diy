@@ -104,6 +104,17 @@ variable "kms_key_rotation_period" {
 
 # ---- Cloud SQL ------------------------------------------------------------
 
+variable "sql_ssl_mode" {
+  description = <<-EOT
+    Cloud SQL ssl_mode. ENCRYPTED_ONLY (prod) requires TLS — but cal's Prisma JS
+    driver adapter verifies the server cert and has no CA, so it fails unless the
+    Cloud SQL CA is injected (prod follow-up). For dev, ALLOW_UNENCRYPTED_AND_ENCRYPTED
+    lets Prisma connect plaintext over the PRIVATE VPC (acceptable for synthetic data).
+  EOT
+  type        = string
+  default     = "ENCRYPTED_ONLY"
+}
+
 variable "sql_edition" {
   description = "Cloud SQL edition. ENTERPRISE supports db-custom-* tiers; ENTERPRISE_PLUS needs db-perf-optimized-*."
   type        = string

@@ -20,10 +20,43 @@ resource "google_cloud_run_v2_job" "migrate" {
         egress    = "PRIVATE_RANGES_ONLY"
       }
 
+      # cloud-sql-proxy sidecar (verified mTLS). --exit-zero-on-sigterm so the
+      # sidecar shuts down cleanly when the migration container finishes the task.
       containers {
-        image   = var.web_image
-        command = ["npx"]
-        args    = ["prisma", "migrate", "deploy", "--schema", "/calcom/packages/prisma/schema.prisma"]
+        name  = "cloudsql-proxy"
+        image = "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1"
+        args = [
+          "--private-ip",
+          "--port=5432",
+          "--exit-zero-on-sigterm",
+          "--health-check",
+          "--http-address=0.0.0.0",
+          "--http-port=9090",
+          google_sql_database_instance.main.connection_name,
+        ]
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+        startup_probe {
+          http_get {
+            path = "/startup"
+            port = 9090
+          }
+          period_seconds    = 5
+          failure_threshold = 20
+          timeout_seconds   = 3
+        }
+      }
+
+      containers {
+        name       = "migrate"
+        image      = var.web_image
+        command    = ["npx"]
+        args       = ["prisma", "migrate", "deploy", "--schema", "/calcom/packages/prisma/schema.prisma"]
+        depends_on = ["cloudsql-proxy"]
 
         resources {
           limits = {
