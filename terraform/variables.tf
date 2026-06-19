@@ -244,6 +244,18 @@ variable "proxy_image" {
   type        = string
 }
 
+variable "web_domain" {
+  description = "Public hostname for the cal web (admin) UI behind the IAP'd HTTPS load balancer, e.g. cal.otconnected.com. Add an A record -> the LB static IP in Cloudflare (DNS-only)."
+  type        = string
+  default     = ""
+}
+
+variable "enable_web_lb" {
+  description = "Create the external HTTPS LB + IAP in front of the web service. Requires web_domain set + DNS pointed at the LB IP."
+  type        = bool
+  default     = false
+}
+
 variable "web_ingress" {
   description = <<-EOT
     Ingress for the web (admin) service. Default INTERNAL_ONLY (no public surface).
