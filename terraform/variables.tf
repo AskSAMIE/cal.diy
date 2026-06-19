@@ -244,6 +244,36 @@ variable "proxy_image" {
   type        = string
 }
 
+variable "provision_admin_email" {
+  description = "Email of the cal admin user (from the setup wizard) to make org OWNER. Empty => first instance ADMIN."
+  type        = string
+  default     = ""
+}
+
+variable "provision_org_name" {
+  description = "Organization display name for the Platform OAuth client."
+  type        = string
+  default     = "OT Connected"
+}
+
+variable "provision_org_slug" {
+  description = "Organization slug."
+  type        = string
+  default     = "otconnected"
+}
+
+variable "provision_client_name" {
+  description = "Platform OAuth client name."
+  type        = string
+  default     = "asksamie-platform"
+}
+
+variable "provision_redirect_uris" {
+  description = "Comma-separated allowed redirect URIs for the Platform OAuth client (managed-user + calendar OAuth returns)."
+  type        = string
+  default     = ""
+}
+
 variable "web_domain" {
   description = "Public hostname for the cal web (admin) UI behind the IAP'd HTTPS load balancer, e.g. cal.otconnected.com. Add an A record -> the LB static IP in Cloudflare (DNS-only)."
   type        = string

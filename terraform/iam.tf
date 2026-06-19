@@ -37,6 +37,11 @@ resource "google_service_account" "migrate" {
   display_name = "cal.diy migration job (${var.environment})"
 }
 
+resource "google_service_account" "provision" {
+  account_id   = "${local.prefix}-provision"
+  display_name = "cal.diy platform-oauth provisioning job (${var.environment})"
+}
+
 # ---------------------------------------------------------------------------
 # Federated service accounts
 # ---------------------------------------------------------------------------
@@ -140,12 +145,13 @@ locals {
   secret_access = merge(
     # API v2 runtime
     { for s in [
-      "database_url", "redis_url", "nextauth_secret", "encryption_key",
-      "service_account_encryption_key", "jwt_secret",
+      "database_url", "database_url_direct", "redis_url", "nextauth_secret",
+      "encryption_key", "service_account_encryption_key", "jwt_secret",
     ] : "api-${s}" => { sa = google_service_account.run_api.email, secret = s } },
     # Web runtime
     { for s in [
-      "database_url", "nextauth_secret", "encryption_key", "service_account_encryption_key",
+      "database_url", "database_url_direct", "nextauth_secret", "encryption_key",
+      "service_account_encryption_key",
     ] : "web-${s}" => { sa = google_service_account.run_web.email, secret = s } },
     # Auth-swap proxy: only the two cal credentials it injects
     { for s in [
@@ -153,6 +159,9 @@ locals {
     ] : "proxy-${s}" => { sa = google_service_account.run_proxy.email, secret = s } },
     # Migration job: the direct (non-pooled) DB URL
     { "migrate-database_url_direct" = { sa = google_service_account.migrate.email, secret = "database_url_direct" } },
+    # Provisioning job: DB + the OAuth client secret it writes into the DB
+    { "provision-database_url" = { sa = google_service_account.provision.email, secret = "database_url" } },
+    { "provision-cal_oauth_client_secret" = { sa = google_service_account.provision.email, secret = "cal_oauth_client_secret" } },
   )
 }
 
@@ -172,6 +181,7 @@ resource "google_project_iam_member" "cloudsql_client" {
     google_service_account.run_web.email,
     google_service_account.run_api.email,
     google_service_account.migrate.email,
+    google_service_account.provision.email,
   ])
   project = var.project_id
   role    = "roles/cloudsql.client"
