@@ -10,7 +10,7 @@
 resource "google_cloud_run_v2_service" "web" {
   name     = "${local.prefix}-web"
   location = var.region
-  ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  ingress  = var.web_ingress
 
   deletion_protection = local.is_prod
 

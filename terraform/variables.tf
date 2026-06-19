@@ -244,6 +244,18 @@ variable "proxy_image" {
   type        = string
 }
 
+variable "web_ingress" {
+  description = <<-EOT
+    Ingress for the web (admin) service. Default INTERNAL_ONLY (no public surface).
+    Set to INGRESS_TRAFFIC_ALL for dev so `gcloud run services proxy` can reach it —
+    the service still requires authentication (no allUsers), so unauthenticated
+    requests get 403; only admin Google identities get in. Prod should use IAP +
+    internal LB instead of ALL.
+  EOT
+  type        = string
+  default     = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+}
+
 variable "admin_members" {
   description = <<-EOT
     IAM members granted run.invoker on the internal web app, so an admin can reach
