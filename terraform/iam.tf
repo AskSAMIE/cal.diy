@@ -92,6 +92,14 @@ resource "google_service_account_iam_member" "aws_caller_wif" {
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.main.name}/attribute.aws_role/${var.aws_caller_assumed_role_arn}"
 }
 
+# Let aws_caller mint ID tokens for ITSELF — the AWS app federates in, impersonates
+# aws_caller, then needs generateIdToken (audience = proxy URL) to call the proxy.
+resource "google_service_account_iam_member" "aws_caller_self_token" {
+  service_account_id = google_service_account.aws_caller.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.aws_caller.email}"
+}
+
 # --- GitHub provider: CI deploys ---
 resource "google_iam_workload_identity_pool_provider" "github" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.main.workload_identity_pool_id
