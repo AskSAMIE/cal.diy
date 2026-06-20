@@ -16,12 +16,15 @@
  *   PROVIDER_EVENT_TITLE  event type title    (default: "OT Consultation")
  *   PROVIDER_EVENT_SLUG   event type slug     (default: "ot-consult")
  *   PROVIDER_EVENT_LENGTH minutes             (default: 30)
+ *   CAL_WEBHOOK_URL       AWS webhook receiver (optional; creates a user-scoped webhook)
+ *   CAL_WEBHOOK_SECRET    HMAC secret for that webhook
  *
  * Prints PROVIDER_CAL_USERNAME=<username> and PROVIDER_EVENT_TYPE_ID=<id> for the
  * AWS app's ProviderScheduling row.
  */
 import { DEFAULT_SCHEDULE, getAvailabilityFromSchedule } from "@calcom/lib/availability";
 import prisma from "@calcom/prisma";
+import { randomUUID } from "crypto";
 
 async function main() {
   const email = process.env.PROVIDER_EMAIL;
@@ -34,41 +37,36 @@ async function main() {
 
   if (!email || !username) throw new Error("PROVIDER_EMAIL and PROVIDER_USERNAME are required");
 
-  // 1. User + a default "Working Hours" schedule (created once).
+  // 1. User (regular cal account).
   const user = await prisma.user.upsert({
     where: { email_username: { email, username } },
     update: { name, timeZone, emailVerified: new Date(), completedOnboarding: true, locale: "en" },
-    create: {
-      email,
-      username,
-      name,
-      timeZone,
-      emailVerified: new Date(),
-      completedOnboarding: true,
-      locale: "en",
-      schedules: {
-        create: {
-          name: "Working Hours",
-          availability: { createMany: { data: getAvailabilityFromSchedule(DEFAULT_SCHEDULE) } },
-        },
-      },
-    },
-    include: { schedules: { orderBy: { id: "asc" } } },
+    create: { email, username, name, timeZone, emailVerified: new Date(), completedOnboarding: true, locale: "en" },
   });
   console.log(`✓ user id=${user.id} username=${user.username}`);
 
-  // 2. Point the user's default schedule at Working Hours (so slots resolve).
-  let scheduleId = user.defaultScheduleId;
-  if (!scheduleId && user.schedules[0]) {
-    scheduleId = user.schedules[0].id;
-    await prisma.user.update({ where: { id: user.id }, data: { defaultScheduleId: scheduleId } });
-    console.log(`✓ defaultScheduleId=${scheduleId}`);
-  }
-
-  // 3. Bookable event type (idempotent by userId + slug).
-  let eventType = await prisma.eventType.findFirst({
-    where: { userId: user.id, slug: eventSlug },
+  // 2. Working-Hours schedule — rebuilt cleanly each run so timezone + availability
+  //    are always correct (an upsert's update branch would never fix an existing one).
+  //    Detach references first to satisfy FKs, then recreate.
+  await prisma.user.update({ where: { id: user.id }, data: { defaultScheduleId: null } });
+  await prisma.eventType.updateMany({ where: { userId: user.id }, data: { scheduleId: null } });
+  await prisma.schedule.deleteMany({ where: { userId: user.id, name: "Working Hours" } });
+  const schedule = await prisma.schedule.create({
+    data: {
+      userId: user.id,
+      name: "Working Hours",
+      timeZone, // slots cannot be computed without the schedule's timezone
+      availability: { createMany: { data: getAvailabilityFromSchedule(DEFAULT_SCHEDULE) } },
+    },
+    include: { availability: true },
   });
+  await prisma.user.update({ where: { id: user.id }, data: { defaultScheduleId: schedule.id } });
+  console.log(`✓ schedule id=${schedule.id} tz=${schedule.timeZone} availability=${schedule.availability.length}`);
+
+  // 3. Bookable event type (idempotent by userId + slug), pinned to the schedule.
+  //    The user MUST be connected as a host (eventType.users) or availability
+  //    computes against zero hosts and the event returns no slots.
+  let eventType = await prisma.eventType.findFirst({ where: { userId: user.id, slug: eventSlug } });
   if (!eventType) {
     eventType = await prisma.eventType.create({
       data: {
@@ -76,13 +74,63 @@ async function main() {
         slug: eventSlug,
         length: eventLength,
         userId: user.id,
-        ...(scheduleId ? { scheduleId } : {}),
+        scheduleId: schedule.id,
+        users: { connect: { id: user.id } },
       },
     });
     console.log(`✓ created eventType id=${eventType.id}`);
   } else {
-    console.log(`✓ eventType exists id=${eventType.id}`);
+    eventType = await prisma.eventType.update({
+      where: { id: eventType.id },
+      data: { scheduleId: schedule.id, length: eventLength, users: { connect: { id: user.id } } },
+    });
+    console.log(`✓ eventType id=${eventType.id} (scheduleId=${eventType.scheduleId})`);
   }
+
+  // 4. Per-user webhook so cal notifies the AWS app of this provider's bookings
+  //    (regular users aren't covered by the platform-client webhook). Idempotent
+  //    by [userId, subscriberUrl].
+  const webhookUrl = process.env.CAL_WEBHOOK_URL;
+  const webhookSecret = process.env.CAL_WEBHOOK_SECRET;
+  if (webhookUrl && webhookSecret) {
+    const triggers = [
+      "BOOKING_CREATED",
+      "BOOKING_RESCHEDULED",
+      "BOOKING_CANCELLED",
+      "BOOKING_NO_SHOW_UPDATED",
+      "MEETING_ENDED",
+    ];
+    const existing = await prisma.webhook.findFirst({
+      where: { userId: user.id, subscriberUrl: webhookUrl },
+    });
+    if (!existing) {
+      await prisma.webhook.create({
+        data: {
+          id: randomUUID(),
+          userId: user.id,
+          subscriberUrl: webhookUrl,
+          secret: webhookSecret,
+          active: true,
+          eventTriggers: triggers as never,
+        },
+      });
+      console.log(`✓ created user-scoped webhook -> ${webhookUrl}`);
+    } else {
+      await prisma.webhook.update({
+        where: { id: existing.id },
+        data: { secret: webhookSecret, active: true, eventTriggers: triggers as never },
+      });
+      console.log(`✓ webhook exists -> ${webhookUrl}`);
+    }
+  } else {
+    console.log("• CAL_WEBHOOK_URL/SECRET not set — skipping webhook");
+  }
+
+  // Debug: confirm what slots will resolve against.
+  console.log(
+    `DEBUG userTz=${user.timeZone} defaultScheduleId=${schedule.id} ` +
+      `availSample=${JSON.stringify(schedule.availability[0])}`
+  );
 
   console.log(`PROVIDER_CAL_USERNAME=${user.username}`);
   console.log(`PROVIDER_EVENT_TYPE_ID=${eventType.id}`);
