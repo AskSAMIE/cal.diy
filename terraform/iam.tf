@@ -154,7 +154,7 @@ locals {
     # API v2 runtime
     { for s in [
       "database_url", "database_url_direct", "redis_url", "nextauth_secret",
-      "encryption_key", "service_account_encryption_key", "jwt_secret",
+      "encryption_key", "service_account_encryption_key", "jwt_secret", "redis_ca",
     ] : "api-${s}" => { sa = google_service_account.run_api.email, secret = s } },
     # Web runtime
     { for s in [

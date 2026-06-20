@@ -59,6 +59,18 @@ resource "google_cloud_run_v2_service" "api" {
       }
     }
 
+    # Memorystore's TLS CA, so RedisService can verify the rediss:// connection.
+    volumes {
+      name = "redis-ca"
+      secret {
+        secret = google_secret_manager_secret.this["redis_ca"].secret_id
+        items {
+          version = "latest"
+          path    = "redis-ca.pem"
+        }
+      }
+    }
+
     containers {
       name       = "app"
       image      = var.api_image
@@ -66,6 +78,11 @@ resource "google_cloud_run_v2_service" "api" {
 
       ports {
         container_port = 5555
+      }
+
+      volume_mounts {
+        name       = "redis-ca"
+        mount_path = "/secrets"
       }
 
       resources {
@@ -81,6 +98,10 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "NODE_ENV"
         value = "production"
+      }
+      env {
+        name  = "REDIS_CA_FILE"
+        value = "/secrets/redis-ca.pem" # RedisService trusts this CA for rediss://
       }
       env {
         name  = "API_PORT"
