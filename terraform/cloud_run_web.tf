@@ -10,7 +10,7 @@
 resource "google_cloud_run_v2_service" "web" {
   name     = "${local.prefix}-web"
   location = var.region
-  ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  ingress  = var.web_ingress
 
   deletion_protection = local.is_prod
 
@@ -29,8 +29,36 @@ resource "google_cloud_run_v2_service" "web" {
       egress    = "PRIVATE_RANGES_ONLY"
     }
 
+    # cloud-sql-proxy sidecar (verified mTLS to Cloud SQL; app talks to localhost).
     containers {
-      image = var.web_image
+      name  = "cloudsql-proxy"
+      image = "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1"
+      args = [
+        "--private-ip",
+        "--port=5432",
+        "--health-check",
+        "--http-address=0.0.0.0",
+        "--http-port=9090",
+        google_sql_database_instance.main.connection_name,
+      ]
+      resources {
+        limits = { cpu = "1", memory = "512Mi" }
+      }
+      startup_probe {
+        http_get {
+          path = "/startup"
+          port = 9090
+        }
+        period_seconds    = 5
+        failure_threshold = 20
+        timeout_seconds   = 3
+      }
+    }
+
+    containers {
+      name       = "app"
+      image      = var.web_image
+      depends_on = ["cloudsql-proxy"]
 
       ports {
         container_port = 3000
@@ -64,7 +92,7 @@ resource "google_cloud_run_v2_service" "web" {
       }
       env {
         name  = "DATABASE_HOST"
-        value = "${google_sql_database_instance.main.private_ip_address}:5432"
+        value = "127.0.0.1:5432" # via the cloud-sql-proxy sidecar
       }
 
       dynamic "env" {
@@ -111,10 +139,22 @@ resource "google_cloud_run_v2_service" "web" {
   ]
 }
 
-# Admin-only invoker (authenticated tunnel). Empty admin_members => no one but
-# project IAM admins can reach it.
+# Access model depends on whether the IAP'd LB is in front:
+#  - enable_web_lb = true: ingress is INTERNAL_AND_CLOUD_LOAD_BALANCING, so the
+#    run.app URL is dead and the ONLY path is LB -> IAP -> here. IAP does the
+#    identity check at the edge, so the service allows unauthenticated invocation
+#    (reachable only via the LB anyway).
+#  - enable_web_lb = false: no LB; only admin_members may invoke (e.g. via tunnel).
+resource "google_cloud_run_v2_service_iam_member" "web_public" {
+  count    = var.enable_web_lb ? 1 : 0
+  name     = google_cloud_run_v2_service.web.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
 resource "google_cloud_run_v2_service_iam_member" "web_admin" {
-  for_each = toset(var.admin_members)
+  for_each = var.enable_web_lb ? [] : toset(var.admin_members)
   name     = google_cloud_run_v2_service.web.name
   location = var.region
   role     = "roles/run.invoker"

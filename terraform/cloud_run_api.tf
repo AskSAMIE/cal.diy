@@ -31,8 +31,38 @@ resource "google_cloud_run_v2_service" "api" {
       egress    = "PRIVATE_RANGES_ONLY" # SQL/Redis via VPC; public (Google APIs) direct
     }
 
+    # cloud-sql-proxy sidecar: fully-verified mTLS to Cloud SQL. The app connects
+    # to it over in-container localhost (127.0.0.1:5432), so the instance stays
+    # ENCRYPTED_ONLY and no TLS verification is skipped.
     containers {
-      image = var.api_image
+      name  = "cloudsql-proxy"
+      image = "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1"
+      args = [
+        "--private-ip",
+        "--port=5432",
+        "--health-check",
+        "--http-address=0.0.0.0",
+        "--http-port=9090",
+        google_sql_database_instance.main.connection_name,
+      ]
+      resources {
+        limits = { cpu = "1", memory = "512Mi" }
+      }
+      startup_probe {
+        http_get {
+          path = "/startup"
+          port = 9090
+        }
+        period_seconds    = 5
+        failure_threshold = 20
+        timeout_seconds   = 3
+      }
+    }
+
+    containers {
+      name       = "app"
+      image      = var.api_image
+      depends_on = ["cloudsql-proxy"]
 
       ports {
         container_port = 5555
@@ -78,7 +108,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         name  = "DATABASE_HOST"
-        value = "${google_sql_database_instance.main.private_ip_address}:5432"
+        value = "127.0.0.1:5432" # via the cloud-sql-proxy sidecar
       }
       # Stripe: required-to-boot presence check only; billing unused. Dummy values.
       env {

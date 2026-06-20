@@ -35,7 +35,7 @@ resource "google_sql_database_instance" "main" {
       ipv4_enabled                                  = false
       private_network                               = google_compute_network.vpc.id
       enable_private_path_for_google_cloud_services = true
-      ssl_mode                                      = "ENCRYPTED_ONLY"
+      ssl_mode                                      = var.sql_ssl_mode
     }
 
     backup_configuration {

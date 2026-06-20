@@ -104,6 +104,17 @@ variable "kms_key_rotation_period" {
 
 # ---- Cloud SQL ------------------------------------------------------------
 
+variable "sql_ssl_mode" {
+  description = <<-EOT
+    Cloud SQL ssl_mode. ENCRYPTED_ONLY (prod) requires TLS — but cal's Prisma JS
+    driver adapter verifies the server cert and has no CA, so it fails unless the
+    Cloud SQL CA is injected (prod follow-up). For dev, ALLOW_UNENCRYPTED_AND_ENCRYPTED
+    lets Prisma connect plaintext over the PRIVATE VPC (acceptable for synthetic data).
+  EOT
+  type        = string
+  default     = "ENCRYPTED_ONLY"
+}
+
 variable "sql_edition" {
   description = "Cloud SQL edition. ENTERPRISE supports db-custom-* tiers; ENTERPRISE_PLUS needs db-perf-optimized-*."
   type        = string
@@ -231,6 +242,60 @@ variable "api_image" {
 variable "proxy_image" {
   description = "Fully-qualified auth-swap proxy image (Artifact Registry). Set by CI to a pinned tag/digest."
   type        = string
+}
+
+variable "provision_admin_email" {
+  description = "Email of the cal admin user (from the setup wizard) to make org OWNER. Empty => first instance ADMIN."
+  type        = string
+  default     = ""
+}
+
+variable "provision_org_name" {
+  description = "Organization display name for the Platform OAuth client."
+  type        = string
+  default     = "OT Connected"
+}
+
+variable "provision_org_slug" {
+  description = "Organization slug."
+  type        = string
+  default     = "otconnected"
+}
+
+variable "provision_client_name" {
+  description = "Platform OAuth client name."
+  type        = string
+  default     = "asksamie-platform"
+}
+
+variable "provision_redirect_uris" {
+  description = "Comma-separated allowed redirect URIs for the Platform OAuth client (managed-user + calendar OAuth returns)."
+  type        = string
+  default     = ""
+}
+
+variable "web_domain" {
+  description = "Public hostname for the cal web (admin) UI behind the IAP'd HTTPS load balancer, e.g. cal.otconnected.com. Add an A record -> the LB static IP in Cloudflare (DNS-only)."
+  type        = string
+  default     = ""
+}
+
+variable "enable_web_lb" {
+  description = "Create the external HTTPS LB + IAP in front of the web service. Requires web_domain set + DNS pointed at the LB IP."
+  type        = bool
+  default     = false
+}
+
+variable "web_ingress" {
+  description = <<-EOT
+    Ingress for the web (admin) service. Default INTERNAL_ONLY (no public surface).
+    Set to INGRESS_TRAFFIC_ALL for dev so `gcloud run services proxy` can reach it —
+    the service still requires authentication (no allUsers), so unauthenticated
+    requests get 403; only admin Google identities get in. Prod should use IAP +
+    internal LB instead of ALL.
+  EOT
+  type        = string
+  default     = "INGRESS_TRAFFIC_INTERNAL_ONLY"
 }
 
 variable "admin_members" {
