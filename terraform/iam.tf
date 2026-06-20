@@ -170,6 +170,7 @@ locals {
     # Provisioning job: DB + the OAuth client secret it writes into the DB
     { "provision-database_url" = { sa = google_service_account.provision.email, secret = "database_url" } },
     { "provision-cal_oauth_client_secret" = { sa = google_service_account.provision.email, secret = "cal_oauth_client_secret" } },
+    { "provision-cal_webhook_secret" = { sa = google_service_account.provision.email, secret = "cal_webhook_secret" } },
   )
 }
 

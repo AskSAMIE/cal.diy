@@ -98,6 +98,19 @@ resource "google_cloud_run_v2_job" "provision" {
             }
           }
         }
+        env {
+          name  = "PROVISION_WEBHOOK_URL"
+          value = var.provision_webhook_url
+        }
+        env {
+          name = "CAL_WEBHOOK_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.this["cal_webhook_secret"].secret_id
+              version = "latest"
+            }
+          }
+        }
       }
     }
   }

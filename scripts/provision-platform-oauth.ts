@@ -16,6 +16,8 @@
  *
  * Prints PLATFORM_OAUTH_CLIENT_ID=<clientId> (NOT secret) for the AWS app config.
  */
+import { randomUUID } from "crypto";
+
 import prisma from "@calcom/prisma";
 import { MembershipRole } from "@calcom/prisma/enums";
 
@@ -107,6 +109,46 @@ async function main() {
       data: { secret: clientSecret, redirectUris, permissions: 1023 },
     });
     console.log(`✓ updated existing PlatformOAuthClient`);
+  }
+
+  // 5. Outbound webhook on the OAuth client — fires for all its managed users'
+  //    bookings. The secret matches what the AWS app verifies (HMAC-SHA256).
+  const webhookUrl = process.env.PROVISION_WEBHOOK_URL;
+  const webhookSecret = process.env.CAL_WEBHOOK_SECRET;
+  if (webhookUrl && webhookSecret) {
+    const triggers = [
+      "BOOKING_CREATED",
+      "BOOKING_REQUESTED",
+      "BOOKING_PAID",
+      "BOOKING_RESCHEDULED",
+      "BOOKING_CANCELLED",
+      "BOOKING_NO_SHOW_UPDATED",
+      "MEETING_ENDED",
+    ];
+    const existing = await prisma.webhook.findFirst({
+      where: { platformOAuthClientId: client.id, subscriberUrl: webhookUrl },
+    });
+    if (!existing) {
+      await prisma.webhook.create({
+        data: {
+          id: randomUUID(),
+          platformOAuthClientId: client.id,
+          subscriberUrl: webhookUrl,
+          secret: webhookSecret,
+          active: true,
+          eventTriggers: triggers as never,
+        },
+      });
+      console.log(`✓ created webhook -> ${webhookUrl}`);
+    } else {
+      await prisma.webhook.update({
+        where: { id: existing.id },
+        data: { secret: webhookSecret, active: true, eventTriggers: triggers as never },
+      });
+      console.log(`✓ updated webhook -> ${webhookUrl}`);
+    }
+  } else {
+    console.log("• webhook skipped (PROVISION_WEBHOOK_URL / CAL_WEBHOOK_SECRET unset)");
   }
 
   console.log(`PLATFORM_OAUTH_CLIENT_ID=${client.id}`);

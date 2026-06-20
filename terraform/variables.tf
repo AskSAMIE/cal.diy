@@ -274,6 +274,12 @@ variable "provision_redirect_uris" {
   default     = ""
 }
 
+variable "provision_webhook_url" {
+  description = "Subscriber URL for the platform outbound webhook (the AWS app's /api/webhooks/cal). Empty = skip webhook setup."
+  type        = string
+  default     = ""
+}
+
 variable "web_domain" {
   description = "Public hostname for the cal web (admin) UI behind the IAP'd HTTPS load balancer, e.g. cal.otconnected.com. Add an A record -> the LB static IP in Cloudflare (DNS-only)."
   type        = string
