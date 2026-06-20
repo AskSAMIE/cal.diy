@@ -1,6 +1,7 @@
 import { AppConfig } from "@/config/type";
 import { Injectable, OnModuleDestroy, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { readFileSync } from "fs";
 import { Redis } from "ioredis";
 
 @Injectable()
@@ -13,7 +14,18 @@ export class RedisService implements OnModuleDestroy {
     const dbUrl = configService.get<string>("db.redisUrl", { infer: true });
     if (!dbUrl) throw new Error("Misconfigured Redis, halting.");
 
-    this.redis = new Redis(dbUrl);
+    // Managed Redis (e.g. GCP Memorystore) presents a TLS cert issued by a private
+    // CA and is reached by private IP. When REDIS_CA_FILE points at that CA, trust
+    // it explicitly and skip the hostname check (connection is to a private IP on
+    // the VPC, so the cert CN/SAN won't match the IP). Without REDIS_CA_FILE this is
+    // a no-op and behaviour is unchanged.
+    const caFile = process.env.REDIS_CA_FILE;
+    const options =
+      dbUrl.startsWith("rediss://") && caFile
+        ? { tls: { ca: readFileSync(caFile), checkServerIdentity: () => undefined } }
+        : {};
+
+    this.redis = new Redis(dbUrl, options);
 
     this.redis.on("error", (err) => {
       this.logger.error(`IoRedis connection error: ${err.message}`);

@@ -20,6 +20,7 @@ locals {
     database_url_direct     = "${local.prefix}-database-url-direct"     # non-pooled URL for migrations
     redis_url               = "${local.prefix}-redis-url"               # rediss://:auth@host:port
     cal_oauth_client_secret = "${local.prefix}-cal-oauth-client-secret" # proxy injects as x-cal-secret-key
+    redis_ca                = "${local.prefix}-redis-ca"                # Memorystore TLS CA (mounted into api)
   })
 }
 
