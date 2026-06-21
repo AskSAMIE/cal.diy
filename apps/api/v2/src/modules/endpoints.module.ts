@@ -5,6 +5,7 @@ import { CalUnifiedCalendarsModule } from "@/modules/cal-unified-calendars/cal-u
 import { ConferencingModule } from "@/modules/conferencing/conferencing.module";
 import { DestinationCalendarsModule } from "@/modules/destination-calendars/destination-calendars.module";
 import { OAuthClientModule } from "@/modules/oauth-clients/oauth-client.module";
+import { ProviderProvisioningModule } from "@/modules/provider-provisioning/provider-provisioning.module";
 import { StripeModule } from "@/modules/stripe/stripe.module";
 import { TimezoneModule } from "@/modules/timezones/timezones.module";
 import { VerifiedResourcesModule } from "@/modules/verified-resources/verified-resources.module";
@@ -28,6 +29,7 @@ import { WebhooksModule } from "./webhooks/webhooks.module";
     ConferencingModule,
     CalUnifiedCalendarsModule,
     VerifiedResourcesModule,
+    ProviderProvisioningModule,
   ],
 })
 export class EndpointsModule implements NestModule {
