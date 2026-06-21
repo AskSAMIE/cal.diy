@@ -36,17 +36,29 @@ export class ProviderProvisioningService {
       const existing = await this.dbRead.prisma.eventType.findFirst({
         where: { userId: user.id, slug: svc.key },
       });
-      const common = {
-        title: svc.title,
-        length: svc.lengthMinutes,
-        hidden: false,
-        ...(scheduleId ? { scheduleId } : {}),
-        users: { connect: { id: user.id } },
-      };
+      // Separate literals for update vs create — Prisma's generated input types
+      // are strict and reject a shared object spread across both.
       const eventType = existing
-        ? await this.dbWrite.prisma.eventType.update({ where: { id: existing.id }, data: common })
+        ? await this.dbWrite.prisma.eventType.update({
+            where: { id: existing.id },
+            data: {
+              title: svc.title,
+              length: svc.lengthMinutes,
+              hidden: false,
+              ...(scheduleId ? { scheduleId } : {}),
+              users: { connect: { id: user.id } },
+            },
+          })
         : await this.dbWrite.prisma.eventType.create({
-            data: { ...common, slug: svc.key, userId: user.id },
+            data: {
+              title: svc.title,
+              slug: svc.key,
+              length: svc.lengthMinutes,
+              hidden: false,
+              userId: user.id,
+              ...(scheduleId ? { scheduleId } : {}),
+              users: { connect: { id: user.id } },
+            },
           });
       eventTypeIds[svc.key] = String(eventType.id);
     }
