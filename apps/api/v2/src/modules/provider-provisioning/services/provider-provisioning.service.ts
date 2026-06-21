@@ -2,6 +2,8 @@ import { PrismaReadService } from "@/modules/prisma/prisma-read.service";
 import { PrismaWriteService } from "@/modules/prisma/prisma-write.service";
 import { Injectable, NotFoundException } from "@nestjs/common";
 
+import type { Prisma } from "@calcom/prisma/client";
+
 import type { ReconcileServiceInput } from "@/modules/provider-provisioning/inputs/reconcile-event-types.input";
 
 @Injectable()
@@ -76,5 +78,68 @@ export class ProviderProvisioningService {
     });
 
     return eventTypeIds;
+  }
+
+  /**
+   * Inject a calendar credential for a regular provider (we run the OAuth in our
+   * own app and pass the token payload here). Upserts the Credential and the
+   * user-level SelectedCalendar so cal reads busy times + writes bookings.
+   */
+  async connectCalendar(params: {
+    username: string;
+    type: string;
+    appSlug: string;
+    key: Record<string, unknown>;
+    externalId: string;
+  }): Promise<{ credentialId: string }> {
+    const { username, type, appSlug, key, externalId } = params;
+    const user = await this.dbRead.prisma.user.findFirst({ where: { username } });
+    if (!user) {
+      throw new NotFoundException(`No cal user with username '${username}'`);
+    }
+
+    const existingCred = await this.dbRead.prisma.credential.findFirst({
+      where: { userId: user.id, type, appId: appSlug },
+    });
+    const credential = existingCred
+      ? await this.dbWrite.prisma.credential.update({
+          where: { id: existingCred.id },
+          data: { key: key as Prisma.InputJsonValue, invalid: false },
+        })
+      : await this.dbWrite.prisma.credential.create({
+          data: { type, key: key as Prisma.InputJsonValue, userId: user.id, appId: appSlug },
+        });
+
+    const existingSel = await this.dbRead.prisma.selectedCalendar.findFirst({
+      where: { userId: user.id, integration: type, externalId, eventTypeId: null },
+    });
+    if (existingSel) {
+      await this.dbWrite.prisma.selectedCalendar.update({
+        where: { id: existingSel.id },
+        data: { credentialId: credential.id },
+      });
+    } else {
+      await this.dbWrite.prisma.selectedCalendar.create({
+        data: { userId: user.id, integration: type, externalId, credentialId: credential.id },
+      });
+    }
+
+    return { credentialId: String(credential.id) };
+  }
+
+  /**
+   * Remove a provider's calendar credential of `type`. Deleting the Credential
+   * cascades to its SelectedCalendar rows.
+   */
+  async disconnectCalendar(params: { username: string; type: string }): Promise<{ deleted: number }> {
+    const { username, type } = params;
+    const user = await this.dbRead.prisma.user.findFirst({ where: { username } });
+    if (!user) {
+      throw new NotFoundException(`No cal user with username '${username}'`);
+    }
+    const result = await this.dbWrite.prisma.credential.deleteMany({
+      where: { userId: user.id, type },
+    });
+    return { deleted: result.count };
   }
 }
