@@ -1,6 +1,10 @@
 import { API_VERSIONS_VALUES } from "@/lib/api-versions";
 import { ApiAuthGuard } from "@/modules/auth/guards/api-auth/api-auth.guard";
 import {
+  SetDestinationCalendarInput,
+  SetSelectedCalendarsInput,
+} from "@/modules/provider-provisioning/inputs/calendar-management.input";
+import {
   ConnectCalendarInput,
   DisconnectCalendarInput,
 } from "@/modules/provider-provisioning/inputs/connect-calendar.input";
@@ -8,7 +12,7 @@ import { ProvisionUserInput } from "@/modules/provider-provisioning/inputs/provi
 import { ReconcileEventTypesInput } from "@/modules/provider-provisioning/inputs/reconcile-event-types.input";
 import { SetScheduleInput } from "@/modules/provider-provisioning/inputs/set-schedule.input";
 import { ProviderProvisioningService } from "@/modules/provider-provisioning/services/provider-provisioning.service";
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiExcludeController, ApiOperation } from "@nestjs/swagger";
 
 import { SUCCESS_STATUS } from "@calcom/platform-constants";
@@ -88,6 +92,56 @@ export class ProviderProvisioningController {
     @Body() body: SetScheduleInput
   ): Promise<ApiResponse<{ scheduleId: number; weeklyHours: number; dateOverrides: number }>> {
     const data = await this.providerProvisioningService.setSchedule(body);
+    return {
+      status: SUCCESS_STATUS,
+      data,
+    };
+  }
+
+  @Get("/calendars")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "List a provider's connected calendars (with selected + destination state)" })
+  async listCalendars(@Query("username") username: string): Promise<
+    ApiResponse<{
+      calendars: {
+        integration: string;
+        externalId: string;
+        name: string;
+        primary: boolean;
+        readOnly: boolean;
+        credentialId: number | null;
+        isSelected: boolean;
+        isDestination: boolean;
+      }[];
+    }>
+  > {
+    const data = await this.providerProvisioningService.listCalendars(username);
+    return {
+      status: SUCCESS_STATUS,
+      data,
+    };
+  }
+
+  @Post("/selected-calendars")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Set which calendars are checked for conflicts" })
+  async setSelectedCalendars(
+    @Body() body: SetSelectedCalendarsInput
+  ): Promise<ApiResponse<{ selected: number }>> {
+    const data = await this.providerProvisioningService.setSelectedCalendars(body);
+    return {
+      status: SUCCESS_STATUS,
+      data,
+    };
+  }
+
+  @Post("/destination-calendar")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Set or clear the calendar that receives booking events" })
+  async setDestinationCalendar(
+    @Body() body: SetDestinationCalendarInput
+  ): Promise<ApiResponse<{ destination: string | null }>> {
+    const data = await this.providerProvisioningService.setDestinationCalendar(body);
     return {
       status: SUCCESS_STATUS,
       data,

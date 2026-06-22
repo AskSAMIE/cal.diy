@@ -229,4 +229,13 @@ export class CalendarsService {
 
     return !credential?.invalid;
   }
+
+  /**
+   * Invalidate the cached connected/destination calendars for a user. Call after
+   * mutating SelectedCalendar / DestinationCalendar rows out-of-band (e.g. headless
+   * provisioning) so the next getCalendars() reflects the change.
+   */
+  async deleteCalendarsCache(userId: number) {
+    await this.calendarsCacheService.deleteConnectedAndDestinationCalendarsCache(userId);
+  }
 }
