@@ -1,5 +1,6 @@
 import { PrismaReadService } from "@/modules/prisma/prisma-read.service";
 import { PrismaWriteService } from "@/modules/prisma/prisma-write.service";
+import { CalendarsService } from "@/platform/calendars/services/calendars.service";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "crypto";
 
@@ -30,7 +31,8 @@ const WEBHOOK_TRIGGERS = [
 export class ProviderProvisioningService {
   constructor(
     private readonly dbRead: PrismaReadService,
-    private readonly dbWrite: PrismaWriteService
+    private readonly dbWrite: PrismaWriteService,
+    private readonly calendarsService: CalendarsService
   ) {}
 
   /**
@@ -299,5 +301,167 @@ export class ProviderProvisioningService {
     }
 
     return { scheduleId, weeklyHours: weeklyHours.length, dateOverrides: dateOverrides.length };
+  }
+
+  /**
+   * List a provider's connected calendars (across all connected accounts), flattened,
+   * with whether each is currently checked for conflicts (isSelected) and whether it's
+   * the booking write target (isDestination). Reuses cal's own connected-calendars path.
+   */
+  async listCalendars(username: string): Promise<{
+    calendars: {
+      integration: string;
+      externalId: string;
+      name: string;
+      primary: boolean;
+      readOnly: boolean;
+      credentialId: number | null;
+      isSelected: boolean;
+      isDestination: boolean;
+    }[];
+  }> {
+    if (!username) {
+      throw new NotFoundException("username query param is required");
+    }
+    const user = await this.dbRead.prisma.user.findFirst({ where: { username } });
+    if (!user) {
+      throw new NotFoundException(`No cal user with username '${username}'`);
+    }
+
+    const connected = await this.calendarsService.getCalendars(user.id);
+
+    // The upstream platform-libraries types are loose at this boundary; read only
+    // the fields we surface.
+    type CalItem = {
+      externalId: string;
+      name?: string;
+      primary?: boolean | null;
+      readOnly?: boolean;
+      isSelected?: boolean;
+      credentialId?: number | null;
+      integration?: string;
+    };
+    type ConnItem = {
+      integration?: { type?: string };
+      credentialId?: number | null;
+      calendars?: CalItem[];
+    };
+    const destination = connected.destinationCalendar as unknown as
+      | { integration?: string; externalId?: string }
+      | null
+      | undefined;
+
+    const calendars: {
+      integration: string;
+      externalId: string;
+      name: string;
+      primary: boolean;
+      readOnly: boolean;
+      credentialId: number | null;
+      isSelected: boolean;
+      isDestination: boolean;
+    }[] = [];
+    for (const conn of (connected.connectedCalendars as unknown as ConnItem[] | undefined) ?? []) {
+      const connIntegration = conn.integration?.type ?? "";
+      for (const cal of conn.calendars ?? []) {
+        const integration = cal.integration ?? connIntegration;
+        calendars.push({
+          integration,
+          externalId: cal.externalId,
+          name: cal.name ?? cal.externalId,
+          primary: !!cal.primary,
+          readOnly: !!cal.readOnly,
+          credentialId: cal.credentialId ?? conn.credentialId ?? null,
+          isSelected: !!cal.isSelected,
+          isDestination:
+            !!destination &&
+            destination.externalId === cal.externalId &&
+            destination.integration === integration,
+        });
+      }
+    }
+
+    return { calendars };
+  }
+
+  /**
+   * Replace which calendars are checked for conflicts (user-level SelectedCalendar
+   * rows). Multiple allowed; empty array clears them. cal's availability path reads
+   * these rows directly, so the change takes effect on the next slot query.
+   */
+  async setSelectedCalendars(params: {
+    username: string;
+    calendars: { integration: string; externalId: string; credentialId: number }[];
+  }): Promise<{ selected: number }> {
+    const user = await this.dbRead.prisma.user.findFirst({ where: { username: params.username } });
+    if (!user) {
+      throw new NotFoundException(`No cal user with username '${params.username}'`);
+    }
+
+    await this.dbWrite.prisma.selectedCalendar.deleteMany({
+      where: { userId: user.id, eventTypeId: null },
+    });
+    if (params.calendars.length) {
+      await this.dbWrite.prisma.selectedCalendar.createMany({
+        data: params.calendars.map((c) => ({
+          userId: user.id,
+          integration: c.integration,
+          externalId: c.externalId,
+          credentialId: c.credentialId,
+        })),
+        skipDuplicates: true,
+      });
+    }
+    await this.calendarsService.deleteCalendarsCache(user.id);
+
+    return { selected: params.calendars.length };
+  }
+
+  /**
+   * Set (or clear) the ONE destination calendar that receives booking events. Provide
+   * integration+externalId to enable writing to that calendar; omit them to turn off
+   * writing (bookings then stay only in cal). One destination per user (@unique userId).
+   */
+  async setDestinationCalendar(params: {
+    username: string;
+    integration?: string;
+    externalId?: string;
+    credentialId?: number;
+  }): Promise<{ destination: string | null }> {
+    const user = await this.dbRead.prisma.user.findFirst({ where: { username: params.username } });
+    if (!user) {
+      throw new NotFoundException(`No cal user with username '${params.username}'`);
+    }
+
+    if (params.integration && params.externalId) {
+      const existing = await this.dbRead.prisma.destinationCalendar.findFirst({
+        where: { userId: user.id },
+      });
+      if (existing) {
+        await this.dbWrite.prisma.destinationCalendar.update({
+          where: { id: existing.id },
+          data: {
+            integration: params.integration,
+            externalId: params.externalId,
+            credentialId: params.credentialId ?? null,
+          },
+        });
+      } else {
+        await this.dbWrite.prisma.destinationCalendar.create({
+          data: {
+            userId: user.id,
+            integration: params.integration,
+            externalId: params.externalId,
+            credentialId: params.credentialId ?? null,
+          },
+        });
+      }
+      await this.calendarsService.deleteCalendarsCache(user.id);
+      return { destination: params.externalId };
+    }
+
+    await this.dbWrite.prisma.destinationCalendar.deleteMany({ where: { userId: user.id } });
+    await this.calendarsService.deleteCalendarsCache(user.id);
+    return { destination: null };
   }
 }
