@@ -3,8 +3,18 @@ import { PrismaWriteService } from "@/modules/prisma/prisma-write.service";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "crypto";
 
-import { DEFAULT_SCHEDULE, getAvailabilityFromSchedule } from "@calcom/lib/availability";
 import type { Prisma } from "@calcom/prisma/client";
+
+// Inlined Mon–Fri 9–5 working hours (== getAvailabilityFromSchedule(DEFAULT_SCHEDULE)).
+// We can't import @calcom/lib/availability here: it resolves at compile time but is
+// not bundled into the api-v2 runtime dist (MODULE_NOT_FOUND at boot).
+const WORKING_HOURS_AVAILABILITY = [
+  {
+    days: [1, 2, 3, 4, 5],
+    startTime: new Date(Date.UTC(1970, 0, 1, 9, 0, 0)),
+    endTime: new Date(Date.UTC(1970, 0, 1, 17, 0, 0)),
+  },
+];
 
 import type { ReconcileServiceInput } from "@/modules/provider-provisioning/inputs/reconcile-event-types.input";
 
@@ -187,7 +197,7 @@ export class ProviderProvisioningService {
         userId: user.id,
         name: "Working Hours",
         timeZone,
-        availability: { createMany: { data: getAvailabilityFromSchedule(DEFAULT_SCHEDULE) } },
+        availability: { createMany: { data: WORKING_HOURS_AVAILABILITY } },
       },
     });
     await this.dbWrite.prisma.user.update({
