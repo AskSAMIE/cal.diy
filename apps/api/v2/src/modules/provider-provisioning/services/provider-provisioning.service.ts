@@ -1,10 +1,20 @@
 import { PrismaReadService } from "@/modules/prisma/prisma-read.service";
 import { PrismaWriteService } from "@/modules/prisma/prisma-write.service";
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { randomUUID } from "crypto";
 
+import { DEFAULT_SCHEDULE, getAvailabilityFromSchedule } from "@calcom/lib/availability";
 import type { Prisma } from "@calcom/prisma/client";
 
 import type { ReconcileServiceInput } from "@/modules/provider-provisioning/inputs/reconcile-event-types.input";
+
+const WEBHOOK_TRIGGERS = [
+  "BOOKING_CREATED",
+  "BOOKING_RESCHEDULED",
+  "BOOKING_CANCELLED",
+  "BOOKING_NO_SHOW_UPDATED",
+  "MEETING_ENDED",
+];
 
 @Injectable()
 export class ProviderProvisioningService {
@@ -141,5 +151,74 @@ export class ProviderProvisioningService {
       where: { userId: user.id, type },
     });
     return { deleted: result.count };
+  }
+
+  /**
+   * Provision a regular (headless) cal user for a provider: upsert the User, rebuild
+   * a clean "Working Hours" schedule (timezone + availability), and optionally create
+   * a per-user booking webhook. Idempotent. Event types are created separately via
+   * reconcileEventTypes. Mirrors scripts/provision-provider.ts.
+   */
+  async provisionUser(params: {
+    email: string;
+    username: string;
+    name?: string;
+    timeZone?: string;
+    webhookUrl?: string;
+    webhookSecret?: string;
+  }): Promise<{ username: string; userId: number }> {
+    const { email, username, webhookUrl, webhookSecret } = params;
+    const name = params.name || username;
+    const timeZone = params.timeZone || "America/Chicago";
+
+    const user = await this.dbWrite.prisma.user.upsert({
+      where: { email_username: { email, username } },
+      update: { name, timeZone, emailVerified: new Date(), completedOnboarding: true, locale: "en" },
+      create: { email, username, name, timeZone, emailVerified: new Date(), completedOnboarding: true, locale: "en" },
+    });
+
+    // Rebuild the Working-Hours schedule cleanly (an upsert's update branch can't fix
+    // an existing one). Detach references first to satisfy FKs.
+    await this.dbWrite.prisma.user.update({ where: { id: user.id }, data: { defaultScheduleId: null } });
+    await this.dbWrite.prisma.eventType.updateMany({ where: { userId: user.id }, data: { scheduleId: null } });
+    await this.dbWrite.prisma.schedule.deleteMany({ where: { userId: user.id, name: "Working Hours" } });
+    const schedule = await this.dbWrite.prisma.schedule.create({
+      data: {
+        userId: user.id,
+        name: "Working Hours",
+        timeZone,
+        availability: { createMany: { data: getAvailabilityFromSchedule(DEFAULT_SCHEDULE) } },
+      },
+    });
+    await this.dbWrite.prisma.user.update({
+      where: { id: user.id },
+      data: { defaultScheduleId: schedule.id },
+    });
+
+    // Per-user booking webhook (regular users aren't covered by a platform webhook).
+    if (webhookUrl && webhookSecret) {
+      const existing = await this.dbRead.prisma.webhook.findFirst({
+        where: { userId: user.id, subscriberUrl: webhookUrl },
+      });
+      if (existing) {
+        await this.dbWrite.prisma.webhook.update({
+          where: { id: existing.id },
+          data: { secret: webhookSecret, active: true, eventTriggers: WEBHOOK_TRIGGERS as never },
+        });
+      } else {
+        await this.dbWrite.prisma.webhook.create({
+          data: {
+            id: randomUUID(),
+            userId: user.id,
+            subscriberUrl: webhookUrl,
+            secret: webhookSecret,
+            active: true,
+            eventTriggers: WEBHOOK_TRIGGERS as never,
+          },
+        });
+      }
+    }
+
+    return { username: user.username, userId: user.id };
   }
 }

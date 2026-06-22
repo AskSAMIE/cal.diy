@@ -4,6 +4,7 @@ import {
   ConnectCalendarInput,
   DisconnectCalendarInput,
 } from "@/modules/provider-provisioning/inputs/connect-calendar.input";
+import { ProvisionUserInput } from "@/modules/provider-provisioning/inputs/provision-user.input";
 import { ReconcileEventTypesInput } from "@/modules/provider-provisioning/inputs/reconcile-event-types.input";
 import { ProviderProvisioningService } from "@/modules/provider-provisioning/services/provider-provisioning.service";
 import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from "@nestjs/common";
@@ -23,6 +24,19 @@ import { ApiResponse } from "@calcom/platform-types";
 @ApiExcludeController()
 export class ProviderProvisioningController {
   constructor(private readonly providerProvisioningService: ProviderProvisioningService) {}
+
+  @Post("/user")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Provision a regular cal user (+ working hours + webhook)" })
+  async provisionUser(
+    @Body() body: ProvisionUserInput
+  ): Promise<ApiResponse<{ username: string; userId: number }>> {
+    const data = await this.providerProvisioningService.provisionUser(body);
+    return {
+      status: SUCCESS_STATUS,
+      data,
+    };
+  }
 
   @Post("/event-types")
   @HttpCode(HttpStatus.OK)
