@@ -6,6 +6,7 @@ import {
 } from "@/modules/provider-provisioning/inputs/connect-calendar.input";
 import { ProvisionUserInput } from "@/modules/provider-provisioning/inputs/provision-user.input";
 import { ReconcileEventTypesInput } from "@/modules/provider-provisioning/inputs/reconcile-event-types.input";
+import { SetScheduleInput } from "@/modules/provider-provisioning/inputs/set-schedule.input";
 import { ProviderProvisioningService } from "@/modules/provider-provisioning/services/provider-provisioning.service";
 import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from "@nestjs/common";
 import { ApiExcludeController, ApiOperation } from "@nestjs/swagger";
@@ -74,6 +75,19 @@ export class ProviderProvisioningController {
     @Body() body: DisconnectCalendarInput
   ): Promise<ApiResponse<{ deleted: number }>> {
     const data = await this.providerProvisioningService.disconnectCalendar(body);
+    return {
+      status: SUCCESS_STATUS,
+      data,
+    };
+  }
+
+  @Post("/schedule")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Set a provider's availability (weekly hours + date overrides)" })
+  async setSchedule(
+    @Body() body: SetScheduleInput
+  ): Promise<ApiResponse<{ scheduleId: number; weeklyHours: number; dateOverrides: number }>> {
+    const data = await this.providerProvisioningService.setSchedule(body);
     return {
       status: SUCCESS_STATUS,
       data,
