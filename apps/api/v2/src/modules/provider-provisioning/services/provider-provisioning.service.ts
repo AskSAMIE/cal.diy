@@ -146,6 +146,10 @@ export class ProviderProvisioningService {
       });
     }
 
+    // Bust the connected-calendars cache so the very first GET /calendars after
+    // connecting reflects the new account immediately (else it can read stale/empty).
+    await this.calendarsService.deleteCalendarsCache(user.id);
+
     return { credentialId: String(credential.id) };
   }
 
