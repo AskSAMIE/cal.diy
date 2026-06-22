@@ -407,6 +407,16 @@ export class CreateBookingInput_2024_08_13 {
   @IsArray()
   @IsInt({ each: true })
   rrHostSubsetIds?: number[];
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      "If true, do not create the event in the organizer's connected calendar (booking is still recorded; conflict-checking is unaffected).",
+    example: true,
+  })
+  @IsBoolean()
+  @IsOptional()
+  skipCalendarEvent?: boolean;
 }
 
 export class CreateRecurringBookingInput_2024_08_13 extends CreateBookingInput_2024_08_13 {

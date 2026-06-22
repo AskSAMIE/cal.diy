@@ -131,6 +131,14 @@ export class InputBookingsService_2024_08_13 {
       };
     }
 
+    // Per-booking override: when the caller asks to skip the calendar event, force
+    // areCalendarEventsEnabled=false regardless of the oAuth client default. The booking
+    // is still recorded; conflict-checking is a separate read and is unaffected. Email is
+    // controlled independently (noEmail) and intentionally left untouched here.
+    if (body.skipCalendarEvent === true) {
+      Object.assign(newRequest, { areCalendarEventsEnabled: false });
+    }
+
     return newRequest as unknown as BookingRequest;
   }
 
