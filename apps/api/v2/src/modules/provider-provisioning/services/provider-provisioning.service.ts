@@ -219,6 +219,7 @@ export class ProviderProvisioningService {
       }
     }
 
-    return { username: user.username, userId: user.id };
+    // user.username is nullable in the schema; we just set it from the (non-null) input.
+    return { username: user.username ?? username, userId: user.id };
   }
 }
