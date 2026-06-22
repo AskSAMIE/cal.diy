@@ -232,4 +232,72 @@ export class ProviderProvisioningService {
     // user.username is nullable in the schema; we just set it from the (non-null) input.
     return { username: user.username ?? username, userId: user.id };
   }
+
+  /**
+   * Replace a provider's availability: recurring weekly hours + date overrides
+   * (time off). Writes cal's own Availability rows (delete-all-then-recreate) on
+   * the provider's default "Working Hours" schedule — entirely separate from any
+   * connected external calendar, which stays read-only.
+   */
+  async setSchedule(params: {
+    username: string;
+    timeZone?: string;
+    weeklyHours: { day: number; start: string; end: string }[];
+    dateOverrides: { date: string; start?: string; end?: string }[];
+  }): Promise<{ scheduleId: number; weeklyHours: number; dateOverrides: number }> {
+    const { username, timeZone, weeklyHours, dateOverrides } = params;
+    const user = await this.dbRead.prisma.user.findFirst({
+      where: { username },
+      include: { schedules: { where: { name: "Working Hours" }, take: 1 } },
+    });
+    if (!user) {
+      throw new NotFoundException(`No cal user with username '${username}'`);
+    }
+
+    let scheduleId = user.defaultScheduleId ?? user.schedules[0]?.id;
+    if (!scheduleId) {
+      const created = await this.dbWrite.prisma.schedule.create({
+        data: { userId: user.id, name: "Working Hours", timeZone: timeZone ?? "America/Chicago" },
+      });
+      scheduleId = created.id;
+      await this.dbWrite.prisma.user.update({
+        where: { id: user.id },
+        data: { defaultScheduleId: created.id },
+      });
+    } else if (timeZone) {
+      await this.dbWrite.prisma.schedule.update({ where: { id: scheduleId }, data: { timeZone } });
+    }
+
+    // Times are stored as @db.Time, wall-clock in the schedule's timezone (1970 date dropped).
+    const hhmmToDate = (s: string) => {
+      const [h, m] = s.split(":");
+      return new Date(Date.UTC(1970, 0, 1, parseInt(h, 10) || 0, parseInt(m, 10) || 0, 0));
+    };
+    const ymdToDate = (s: string) => new Date(`${s}T00:00:00.000Z`);
+
+    const rows = [
+      ...weeklyHours.map((w) => ({
+        scheduleId,
+        days: [w.day],
+        startTime: hhmmToDate(w.start),
+        endTime: hhmmToDate(w.end),
+        date: null,
+      })),
+      ...dateOverrides.map((o) => ({
+        scheduleId,
+        days: [] as number[],
+        startTime: hhmmToDate(o.start ?? "00:00"),
+        endTime: hhmmToDate(o.end ?? "00:00"),
+        date: ymdToDate(o.date),
+      })),
+    ];
+
+    // Cal's own pattern: replace the schedule's availability wholesale.
+    await this.dbWrite.prisma.availability.deleteMany({ where: { scheduleId } });
+    if (rows.length) {
+      await this.dbWrite.prisma.availability.createMany({ data: rows });
+    }
+
+    return { scheduleId, weeklyHours: weeklyHours.length, dateOverrides: dateOverrides.length };
+  }
 }
