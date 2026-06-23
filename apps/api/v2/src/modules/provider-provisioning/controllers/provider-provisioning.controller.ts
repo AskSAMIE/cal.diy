@@ -18,9 +18,21 @@ import { ApiExcludeController, ApiOperation } from "@nestjs/swagger";
 import { SUCCESS_STATUS } from "@calcom/platform-constants";
 import { ApiResponse } from "@calcom/platform-types";
 
-// Internal endpoint: the AskSAMIE app (server-to-server, via the auth-swap proxy)
-// reconciles a provider's bookable services to cal event types. Not part of the
-// public docs.
+// Internal endpoints: the AskSAMIE app (server-to-server, via the auth-swap proxy)
+// provisions/reconciles a provider's cal user, event types, calendars and schedule.
+// Not part of the public docs.
+//
+// SECURITY / TRUST MODEL (H3): every route is gated by @UseGuards(ApiAuthGuard) at the
+// class level (below) — the caller is AUTHENTICATED with the shared server API key.
+// However these endpoints TRUST the `username`/`email` in the request body and perform
+// NO per-provider authorization: the authenticated principal is never checked against the
+// targeted provider. They are safe ONLY because they are reachable EXCLUSIVELY via the
+// IAM-gated auth-swap proxy holding that single server key, and the AskSAMIE app always
+// derives the target username from the authenticated provider's own ProviderScheduling
+// row. A leaked key or a compromised proxy could act on ANY provider (cross-tenant).
+// TODO(security): before GA or any non-single-tenant exposure, attest the provider
+// identity — pass a signed provider claim from the proxy and verify it here against the
+// body's username — instead of trusting a free-form username.
 @Controller({
   path: "/v2/provider-provisioning",
   version: API_VERSIONS_VALUES,
