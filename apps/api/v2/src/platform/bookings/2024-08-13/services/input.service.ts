@@ -135,7 +135,13 @@ export class InputBookingsService_2024_08_13 {
     // areCalendarEventsEnabled=false regardless of the oAuth client default. The booking
     // is still recorded; conflict-checking is a separate read and is unaffected. Email is
     // controlled independently (noEmail) and intentionally left untouched here.
-    if (body.skipCalendarEvent === true) {
+    //
+    // SECURITY (M3): skipCalendarEvent is a PRIVILEGED override — only honor it for an
+    // AUTHENTICATED caller. `userId` is resolved from the bearer token (a valid API key
+    // or access token) by createBookingRequestOwnerId; it is undefined for an anonymous
+    // booker (no/invalid bearer). Without this gate, any anonymous booker could pass
+    // skipCalendarEvent:true and suppress the organizer's real calendar hold.
+    if (body.skipCalendarEvent === true && userId !== undefined) {
       Object.assign(newRequest, { areCalendarEventsEnabled: false });
     }
 
