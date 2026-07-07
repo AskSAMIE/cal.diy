@@ -167,9 +167,12 @@ locals {
     ] : "proxy-${s}" => { sa = google_service_account.run_proxy.email, secret = s } },
     # Migration job: the direct (non-pooled) DB URL
     { "migrate-database_url_direct" = { sa = google_service_account.migrate.email, secret = "database_url_direct" } },
-    # Provisioning job: DB + the OAuth client secret it writes into the DB
+    # Provisioning job: DB + the OAuth client secret it writes into the DB.
+    # cal_webhook_secret: provision-provider.ts (run by this same SA) creates
+    # the per-provider webhook and needs to read the HMAC secret at runtime.
     { "provision-database_url" = { sa = google_service_account.provision.email, secret = "database_url" } },
     { "provision-cal_oauth_client_secret" = { sa = google_service_account.provision.email, secret = "cal_oauth_client_secret" } },
+    { "provision-cal_webhook_secret" = { sa = google_service_account.provision.email, secret = "cal_webhook_secret" } },
   )
 }
 

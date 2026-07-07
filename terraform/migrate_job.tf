@@ -92,7 +92,13 @@ resource "google_cloud_run_v2_job" "migrate" {
   labels = local.labels
 
   lifecycle {
-    ignore_changes = [template[0].template[0].containers[0].image, client, client_version]
+    # containers[0] = cloudsql-proxy (declared above), containers[1] = migrate
+    # (declared below). CI rolls the migrate container's image per-deploy via
+    # `gcloud run jobs update --container migrate --image ...`, so ignore
+    # drift on containers[1], NOT containers[0] — ignoring the proxy's image
+    # would let an accidental sidecar clobber (e.g. a deploy step missing
+    # --container) go uncorrected on the next terraform apply.
+    ignore_changes = [template[0].template[0].containers[1].image, client, client_version]
   }
 
   depends_on = [
