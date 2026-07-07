@@ -152,8 +152,13 @@ jobs:
         run: |
           set -euo pipefail
           JOB="caldiy-${{ inputs.environment || 'dev' }}-migrate"
+          # --container is required here: the job has two containers (the
+          # cloudsql-proxy sidecar + the migrate container). Without it,
+          # `--image` targets the first-declared container (cloudsql-proxy),
+          # clobbering the pinned proxy image and breaking migrations.
           gcloud run jobs update "$JOB" \
             --region "${{ vars.GCP_REGION }}" \
+            --container migrate \
             --image "${{ steps.digests.outputs.web_image }}" \
             --quiet
           gcloud run jobs execute "$JOB" --region "${{ vars.GCP_REGION }}" --wait
