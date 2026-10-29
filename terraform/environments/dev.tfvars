@@ -53,7 +53,7 @@ proxy_revision_labels = {
 }
 
 # Admins allowed through IAP into the cal web (admin) UI.
-admin_members = ["user:hello@asksamie.com"]
+admin_members = ["user:hello@asksamie.com", "user:willie@asksamie.com"]
 
 # Images — create-time/bootstrap values only. The app containers of web, api,
 # proxy and the migrate + provision jobs are rolled out-of-band (CI
