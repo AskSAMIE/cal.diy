@@ -323,3 +323,68 @@ git rm $(ls .github/workflows/*.y*ml | grep -vE 'caldiy-(deploy|terraform)\.yml$
 | Run migrations | `gcloud run jobs execute caldiy-${ENV}-migrate --region $REGION --wait` |
 | Tail proxy logs | `gcloud run services logs read caldiy-${ENV}-proxy --region $REGION` |
 | Roll back a service | `gcloud run services update-traffic …` (§6) |
+| Check for drift | `terraform plan -var-file=environments/dev.tfvars` → must be `No changes` (§11) |
+
+---
+
+## 11. Drift, sizing changes, and "dev" = production
+
+**The stack named `dev` is the production cal instance.** It is the only cal.diy
+deployment: project `asksamie-prod`, prefix `caldiy-dev-*`, state
+`gs://asksamie-prod-tfstate/caldiy/dev`. `terraform/environments/dev.tfvars` holds
+the real values; `prod.tfvars` is an unused placeholder. (`ENV=dev`, `REGION=us-central1`
+everywhere in this runbook.)
+
+**What drifted (found 2026-10-29).** After the last Terraform apply in June 2026 the
+stack was resized by hand (gcloud/console, all current revisions created 2026-06-22..24),
+CI kept rolling images with `gcloud run deploy`, and the committed tfvars still had
+`<PLACEHOLDER>` values — so nobody could even run a plan from a clean clone. A full
+plan in October proposed to roll every Cloud Run service back to dev defaults
+(api 1/3 instances + 2 Gi, web max 2, proxy 0/5), shrink the production database from
+REGIONAL `db-custom-2-7680` to ZONAL `db-custom-1-3840`, strip the proxy's rotation
+labels, strip the provision job's webhook env, and re-pin images — because the image
+`ignore_changes` pointed at the cloudsql-proxy sidecar (`containers[0]`) instead of the
+app container (`containers[1]`). All of it was reconciled by changing **config to match
+live** (`terraform/README.md` → "Drift and the sizing rule"); no live resource was changed.
+
+**Rule.**
+
+- A sizing change (instances, CPU, memory, SQL tier/HA, labels, env) is a tfvars/`.tf`
+  change + PR + `terraform apply`. Never the console, never `gcloud run services update`.
+- `gcloud run services update` / `gcloud run jobs update` / console edits are
+  **break-glass**: allowed in an incident, but the same value goes into tfvars and
+  `terraform plan` is brought back to `No changes` **the same day**. Log the break-glass
+  change in the PR that reconciles it.
+- CI's `gcloud run deploy … --image` / `gcloud run jobs update --container migrate --image`
+  are the only sanctioned out-of-band writes (the app image is `ignore_changes`d for
+  exactly that). Moving CI to Terraform-as-deployer is the follow-up that removes even
+  that exception.
+- Secret rotation that needs a new revision: bump `proxy_revision_labels` in tfvars and
+  apply, instead of `gcloud run services update --update-labels`.
+- Before every apply: `terraform plan` shows only the change you intend.
+
+**Running Terraform against the live stack.** The project is owned by
+`hello@asksamie.com`; in the same shell as each terraform command:
+
+```bash
+cd terraform
+export GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token hello@asksamie.com)  # 1 h
+terraform init -backend-config=environments/backend-dev.hcl
+terraform plan -var-file=environments/dev.tfvars
+```
+
+**Known gaps (as of 2026-10-29), not yet in Terraform.**
+
+- Secret Manager secrets created by hand and referenced by the provision-provider job:
+  `caldiy-dev-cal-oauth-client-id`, `caldiy-dev-google-api-credentials`,
+  `caldiy-dev-ms-graph-client-id`, `caldiy-dev-ms-graph-client-secret`. Add them to
+  `local.all_secret_names` + `terraform import` before anything else depends on them.
+- The provision SA's `secretAccessor` on `caldiy-dev-cal-webhook-secret` was granted ad hoc
+  on 2026-07-07 and codified in #12 but never imported, so plan shows it as a create.
+  `terraform import 'google_secret_manager_secret_iam_member.access["provision-cal_webhook_secret"]' 'projects/asksamie-prod/secrets/caldiy-dev-cal-webhook-secret roles/secretmanager.secretAccessor serviceAccount:caldiy-dev-provision@asksamie-prod.iam.gserviceaccount.com'`
+  (or simply apply — the create is idempotent on the existing binding).
+- The provision-provider job carries `CAL_WEBHOOK_SECRET` as a **plain-text env value**
+  (set per-run via `--update-env-vars`; the job's env is `ignore_changes`d). Switch it to
+  a Secret Manager reference like the provision job and rotate the secret.
+- `provision_webhook_url` still points at the pre-migration `dev.otconnected.com`
+  hostname (exactly as live). Fix it in tfvars before the next provision-job run.
