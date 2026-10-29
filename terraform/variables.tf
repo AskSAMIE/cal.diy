@@ -337,6 +337,23 @@ variable "aws_caller_assumed_role_arn" {
   type        = string
 }
 
+variable "platform_runtime_sa_email" {
+  description = <<-EOT
+    Email of the AskSAMIE platform's own Cloud Run runtime service account, e.g.
+    platform-run@asksamie-platform-prod.iam.gserviceaccount.com. When non-empty it is
+    granted roles/run.invoker on the auth-swap proxy ALONGSIDE aws_caller, so the
+    platform can call cal with an ID token minted by the Cloud Run metadata server
+    (no WIF hop) once it has moved from AWS ECS to GCP. Empty => AWS caller only.
+    Keep both bound during cutover; drop aws_caller after AWS is torn down.
+  EOT
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.platform_runtime_sa_email == "" || can(regex("^[a-z][a-z0-9-]*@[a-z][a-z0-9-]*\\.iam\\.gserviceaccount\\.com$", var.platform_runtime_sa_email))
+    error_message = "platform_runtime_sa_email must be empty or a bare service-account email (<name>@<project>.iam.gserviceaccount.com) — no 'serviceAccount:' prefix."
+  }
+}
+
 variable "github_repo" {
   description = "owner/repo allowed to deploy via GitHub Actions WIF. e.g. AskSAMIE/cal.diy"
   type        = string

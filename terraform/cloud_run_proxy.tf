@@ -3,6 +3,8 @@
 #
 # Trust chain:
 #   AWS ECS task role --(WIF)--> aws_caller SA --(run.invoker)--> THIS proxy
+#   platform-run SA (Cloud Run metadata ID token) --(run.invoker)--> THIS proxy
+#     [post AWS->GCP migration; bound only when var.platform_runtime_sa_email is set]
 #   Cloud Run IAM validates the Google ID token in `Authorization: Bearer`.
 #   The proxy then STRIPS that header, injects cal's real credentials from Secret
 #   Manager (Authorization: Bearer <cal_api_key> + x-cal-secret-key for managed
@@ -89,10 +91,23 @@ resource "google_cloud_run_v2_service" "proxy" {
   depends_on = [google_secret_manager_secret_iam_member.access]
 }
 
-# ONLY the federated AWS caller may invoke the proxy. No allUsers.
+# ONLY the federated AWS caller (and, when configured, the platform's own Cloud Run
+# runtime SA below) may invoke the proxy. No allUsers.
 resource "google_cloud_run_v2_service_iam_member" "proxy_invoker" {
   name     = google_cloud_run_v2_service.proxy.name
   location = var.region
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.aws_caller.email}"
+}
+
+# The AskSAMIE platform running on GCP Cloud Run calls the proxy with an ID token
+# minted directly by its runtime SA (metadata server, audience = proxy URL) — no
+# WIF. Additive to proxy_invoker so both callers work during the AWS->GCP cutover.
+resource "google_cloud_run_v2_service_iam_member" "proxy_invoker_platform" {
+  count = var.platform_runtime_sa_email != "" ? 1 : 0
+
+  name     = google_cloud_run_v2_service.proxy.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${var.platform_runtime_sa_email}"
 }

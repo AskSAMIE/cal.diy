@@ -20,7 +20,7 @@ operations in [`../RUNBOOK.md`](../RUNBOOK.md).
 | `iam.tf` | runtime + federated SAs, **WIF** (AWS + GitHub), least-privilege bindings |
 | `cloud_run_api.tf` | cal API v2 — **internal ingress** |
 | `cloud_run_web.tf` | cal web — internal ingress, admin-only |
-| `cloud_run_proxy.tf` | auth-swap proxy — public, IAM-gated to the AWS caller |
+| `cloud_run_proxy.tf` | auth-swap proxy — public, IAM-gated to the AWS caller (+ the platform's Cloud Run runtime SA when `platform_runtime_sa_email` is set) |
 | `migrate_job.tf` | Cloud Run Job: `prisma migrate deploy` |
 | `logging.tf` | audit logs → 6-year bucket; Data Access logs |
 | `outputs.tf` | URLs, WIF wiring, secret names (no secret values) |

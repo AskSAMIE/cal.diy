@@ -17,6 +17,11 @@ aws_account_id              = "463884832761"
 aws_caller_assumed_role_arn = "arn:aws:sts::463884832761:assumed-role/ecsTaskExecutionRole"
 github_repo                 = "AskSAMIE/cal.diy"
 
+# AskSAMIE platform runtime SA on GCP Cloud Run (calls the proxy directly, no WIF).
+# This "dev"-named stack is the single live cal instance that serves production
+# (co-located in the asksamie-prod project), so the platform-PROD SA belongs here.
+platform_runtime_sa_email = "platform-run@asksamie-platform-prod.iam.gserviceaccount.com"
+
 # Encryption / data stores.
 use_cmek                = true
 sql_tier                = "db-custom-1-3840"
