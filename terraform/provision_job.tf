@@ -98,6 +98,22 @@ resource "google_cloud_run_v2_job" "provision" {
             }
           }
         }
+        # Outbound webhook on the Platform OAuth client (cal -> platform, HMAC
+        # with cal_webhook_secret). Live on the job since 2026-06-20; the
+        # accessor grant is in iam.tf (local.secret_access).
+        env {
+          name  = "PROVISION_WEBHOOK_URL"
+          value = var.provision_webhook_url
+        }
+        env {
+          name = "CAL_WEBHOOK_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.this["cal_webhook_secret"].secret_id
+              version = "latest"
+            }
+          }
+        }
       }
     }
   }
