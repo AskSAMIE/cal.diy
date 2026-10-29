@@ -47,6 +47,10 @@ resource "google_cloud_run_v2_service" "api" {
       ]
       resources {
         limits = { cpu = "1", memory = "512Mi" }
+        # Live since the June 2026 hand-deploys (gcloud/console turn CPU boost on
+        # for every container of the revision). Harmless for the sidecar; recorded
+        # so plan converges instead of rolling a revision to switch it off.
+        startup_cpu_boost = true
       }
       startup_probe {
         http_get {
@@ -180,8 +184,21 @@ resource "google_cloud_run_v2_service" "api" {
   labels = local.labels
 
   lifecycle {
-    # Image tag is rolled by CI via `gcloud run deploy`; don't let TF revert it.
-    ignore_changes = [template[0].containers[0].image, client, client_version]
+    ignore_changes = [
+      # containers[0] = cloudsql-proxy sidecar (TF-owned, pinned above);
+      # containers[1] = app. CI / `gcloud run deploy` rolls the APP image, so
+      # defer to the live value on [1] only. (Until Oct 2026 this said [0]:
+      # Terraform protected the sidecar and would have re-pinned the app image
+      # to the tfvars bootstrap digest on every apply.)
+      template[0].containers[1].image,
+      # Service-level scaling: the API reports a default
+      # {manual_instance_count = 0, min_instance_count = 0} block on any service
+      # touched by gcloud/console. It has no effect (template.scaling is what
+      # counts) and the provider cannot express "absent", so it is pure noise.
+      scaling,
+      client,
+      client_version,
+    ]
   }
 
   depends_on = [

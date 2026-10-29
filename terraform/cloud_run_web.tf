@@ -43,6 +43,8 @@ resource "google_cloud_run_v2_service" "web" {
       ]
       resources {
         limits = { cpu = "1", memory = "512Mi" }
+        # Live since the June 2026 hand-deploys (see cloud_run_api.tf).
+        startup_cpu_boost = true
       }
       startup_probe {
         http_get {
@@ -130,7 +132,15 @@ resource "google_cloud_run_v2_service" "web" {
   labels = local.labels
 
   lifecycle {
-    ignore_changes = [template[0].containers[0].image, client, client_version]
+    ignore_changes = [
+      # containers[0] = cloudsql-proxy sidecar (TF-owned); containers[1] = app,
+      # rolled by CI / `gcloud run deploy`. See cloud_run_api.tf for why [1].
+      template[0].containers[1].image,
+      # Service-level scaling block = API default noise (see cloud_run_api.tf).
+      scaling,
+      client,
+      client_version,
+    ]
   }
 
   depends_on = [

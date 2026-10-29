@@ -105,9 +105,16 @@ resource "google_cloud_run_v2_job" "provision" {
   labels = local.labels
 
   lifecycle {
-    # Unlike the CI-rolled services, TF owns this job's image so a web_image bump
-    # (the rebuild that bakes in the provisioning script) actually updates it.
-    ignore_changes = [client, client_version]
+    ignore_changes = [
+      # containers[0] = cloudsql-proxy sidecar (TF-owned); containers[1] =
+      # provision. Its image is rolled out-of-band like the services' (the live
+      # job runs a web digest Terraform never recorded), so defer to live. To
+      # roll it on purpose: `gcloud run jobs update caldiy-<env>-provision
+      # --container provision --image <web digest>` — and log it (RUNBOOK §11).
+      template[0].template[0].containers[1].image,
+      client,
+      client_version,
+    ]
   }
 
   depends_on = [

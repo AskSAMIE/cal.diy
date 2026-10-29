@@ -23,9 +23,19 @@ resource "google_cloud_run_v2_service" "proxy" {
   template {
     service_account = google_service_account.run_proxy.email
 
+    # Revision-template labels. The api/web templates carry none, but this
+    # service was re-labelled by hand during the June 2026 secret rotations
+    # (`gcloud run services update --update-labels keyrev=…,oauthsecret=…`), and
+    # gcloud copies the service's FULL label map — including the provider's
+    # goog-terraform-provisioned attribution label — onto the revision template.
+    # Encode exactly what is live so plan converges without rolling a revision.
+    # The rotation markers themselves are var.proxy_revision_labels (tfvars):
+    # bump one there + apply to roll a revision that re-reads `latest` secrets.
+    labels = merge(local.labels, { "goog-terraform-provisioned" = "true" }, var.proxy_revision_labels)
+
     scaling {
-      min_instance_count = local.is_prod ? 1 : 0
-      max_instance_count = 5
+      min_instance_count = var.proxy_min_instances
+      max_instance_count = var.proxy_max_instances
     }
 
     vpc_access {
@@ -85,7 +95,14 @@ resource "google_cloud_run_v2_service" "proxy" {
   labels = local.labels
 
   lifecycle {
-    ignore_changes = [template[0].containers[0].image, client, client_version]
+    ignore_changes = [
+      # Single container, so [0] IS the proxy image rolled by CI / gcloud.
+      template[0].containers[0].image,
+      # Service-level scaling block = API default noise (see cloud_run_api.tf).
+      scaling,
+      client,
+      client_version,
+    ]
   }
 
   depends_on = [google_secret_manager_secret_iam_member.access]

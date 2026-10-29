@@ -203,6 +203,30 @@ variable "api_max_instances" {
   default     = 10
 }
 
+variable "proxy_min_instances" {
+  description = "Auth-swap proxy min instances. The proxy fronts every booking call, so >=1 avoids a cold start on the first slot query."
+  type        = number
+  default     = 1
+}
+
+variable "proxy_max_instances" {
+  description = "Auth-swap proxy max instances."
+  type        = number
+  default     = 5
+}
+
+variable "proxy_revision_labels" {
+  description = <<-EOT
+    Extra labels on the proxy's revision template (merged over the common labels).
+    These are the rotation markers (keyrev, oauthsecret) that were bumped by hand
+    in June 2026 to roll a revision after a secret rotation; the live values are
+    recorded in tfvars so plan converges. Bump a value here + apply to roll the
+    revision through Terraform instead of `gcloud run services update --update-labels`.
+  EOT
+  type        = map(string)
+  default     = {}
+}
+
 variable "web_cpu" {
   description = "Web container CPU."
   type        = string
