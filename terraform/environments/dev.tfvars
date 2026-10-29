@@ -25,10 +25,11 @@ github_repo                 = "AskSAMIE/cal.diy"
 # This stack serves production, so the platform-PROD SA belongs here.
 platform_runtime_sa_email = "platform-run@asksamie-platform-prod.iam.gserviceaccount.com"
 
-# Encryption / data stores.
+# Encryption / data stores. Cloud SQL was hand-resized to HA + 2 vCPU in June
+# 2026 (production load); recorded here so Terraform never shrinks it back.
 use_cmek                = true
-sql_tier                = "db-custom-1-3840"
-sql_availability_type   = "ZONAL"
+sql_tier                = "db-custom-2-7680"
+sql_availability_type   = "REGIONAL"
 sql_disk_size_gb        = 10
 sql_deletion_protection = false
 redis_tier              = "BASIC"
