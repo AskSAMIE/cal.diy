@@ -386,5 +386,3 @@ terraform plan -var-file=environments/dev.tfvars
 - The provision-provider job carries `CAL_WEBHOOK_SECRET` as a **plain-text env value**
   (set per-run via `--update-env-vars`; the job's env is `ignore_changes`d). Switch it to
   a Secret Manager reference like the provision job and rotate the secret.
-- `provision_webhook_url` still points at the pre-migration `dev.otconnected.com`
-  hostname (exactly as live). Fix it in tfvars before the next provision-job run.
