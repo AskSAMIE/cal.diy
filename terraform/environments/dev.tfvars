@@ -75,7 +75,8 @@ enable_web_lb = true
 
 # Platform OAuth client provisioning (provision job).
 provision_redirect_uris = "https://cal.otconnected.com,https://otconnected.com"
-# NOTE: still the pre-domain-migration dev hostname, exactly as live on the job
-# since 2026-06-20. Re-running the provision job would (re)point the OAuth
-# client's webhook here — change this before the next run if that is wrong.
-provision_webhook_url = "https://dev.otconnected.com/api/webhooks/cal"
+# The platform's cal webhook receiver (as-platform server/src/endpoints/rest/
+# cal_webhooks.py, HMAC via X-Cal-Signature-256). The job carried the retired
+# dev.otconnected.com host from 2026-06-20 until 2026-11-13; the platform has
+# served from pro.asksamie.com on GCP since 2026-10-29 (as-platform #643).
+provision_webhook_url = "https://pro.asksamie.com/api/webhooks/cal"
